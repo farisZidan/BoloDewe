@@ -1,0 +1,6 @@
+{
+  "name": "Bolo Dewe",
+  "description": "Bolo Dewe - Aplikasi Kasir dan Transaksi Online dengan integrasi database MySQL dan SQLite.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
