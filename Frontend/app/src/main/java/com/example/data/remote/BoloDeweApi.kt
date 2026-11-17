@@ -24,14 +24,17 @@ data class LoginResponse(
 
 @JsonClass(generateAdapter = true)
 data class SalesRequest(
+    val id_transaksi: Int = 0,
     val product_id: Int,
     val tanggal: String
 )
 
 @JsonClass(generateAdapter = true)
 data class RemoteSaleItem(
-    @Json(name = "kode_sku") val kode_sku: String,
-    @Json(name = "nama_produk") val nama_produk: String
+    @Json(name = "sku") val sku: String,
+    @Json(name = "nama_produk") val nama_produk: String,
+    @Json(name = "prediksi_bulan_depan") val prediksi_bulan_depan: Int,
+    @Json(name = "status") val status: String
 )
 
 interface BoloDeweApi {
@@ -64,7 +67,7 @@ interface BoloDeweApi {
     ): Response<okhttp3.ResponseBody>
 
     @GET("api/sales")
-    suspend fun getSales(): Response<Map<String, List<RemoteSaleItem>>>
+    suspend fun getSales(): Response<List<SalesTransaction>>
 
     @POST("api/sales")
     suspend fun createSale(

@@ -250,8 +250,20 @@ class BoloDeweRepository(
     }
 
     suspend fun refreshSales() = withContext(Dispatchers.IO) {
-        // Keeping local user-created transactions intact instead of overwriting
-        // them with the backend's default/mock list.
+        try {
+            val response = api.getSales()
+            if (response.isSuccessful) {
+                response.body()?.let { _allTransactions.value = it }
+            } else {
+                if (response.code() == 401) {
+                    Log.w(TAG, "Session expired while fetching sales")
+                } else {
+                    Log.e(TAG, "Gagal memuat transaksi: HTTP ${response.code()}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error jaringan saat memuat transaksi", e)
+        }
     }
 
     suspend fun addProduct(
@@ -387,14 +399,20 @@ class BoloDeweRepository(
         date: String
     ): Boolean = withContext(Dispatchers.IO) {
         try {
+            val formattedDate = if (date.length == 10) "$date 00:00:00" else date
             val response = api.updateSale(
                 transactionId,
-                SalesRequest(product_id = productId, tanggal = date)
+                SalesRequest(
+                    id_transaksi = transactionId,
+                    product_id = productId,
+                    tanggal = formattedDate
+                )
             )
             if (response.isSuccessful) {
                 refreshSales()
                 true
             } else {
+                Log.e(TAG, "Gagal update transaksi: HTTP ${response.code()}")
                 false
             }
         } catch (e: Exception) {
@@ -421,7 +439,14 @@ class BoloDeweRepository(
         date: String
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val response = api.createSale(SalesRequest(productId, date))
+            val formattedDate = if (date.length == 10) "$date 00:00:00" else date
+            val response = api.createSale(
+                SalesRequest(
+                    id_transaksi = 0,
+                    product_id = productId,
+                    tanggal = formattedDate
+                )
+            )
             if (response.isSuccessful) {
                 refreshProducts()
                 refreshSales()

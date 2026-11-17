@@ -47,6 +47,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import java.text.SimpleDateFormat
 import java.util.*
 
+
 // ---------------------- TRANSAKSI TERKINI ("LIHAT SEMUA") SCREEN ----------------------
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,30 +57,23 @@ fun TransaksiTerkiniScreen(
 ) {
     val products by viewModel.allProducts.collectAsState()
     val transactions by viewModel.allTransactions.collectAsState()
-    var searchDateQuery by remember { mutableStateOf("") }
-    var showDatePickerDialog by remember { mutableStateOf(false) }
     var showEditDatePickerDialog by remember { mutableStateOf(false) }
     var editingTransaction by remember { mutableStateOf<SalesTransaction?>(null) }
-    val datePickerState = rememberDatePickerState(
-        initialSelectedDateMillis = System.currentTimeMillis()
-    )
     val editDatePickerState = rememberDatePickerState(
         initialSelectedDateMillis = System.currentTimeMillis()
     )
 
-    var selectedFilterPill by remember { mutableStateOf(0) } // 0: Hari Ini, 1: Kemarin, 2: Kemarin Lusa
+    // 0: Mingguan, 1: Bulanan, 2: Tahunan, 3: Semua Transaksi (Default ke 3)
+    var selectedFilterPill by remember { mutableStateOf(3) }
 
     val entranceAlpha = remember { Animatable(0f) }
     val entranceOffsetY = remember { Animatable(30f) }
     LaunchedEffect(Unit) {
         entranceAlpha.animateTo(1f, animationSpec = tween(450))
-    }
-    LaunchedEffect(Unit) {
         entranceOffsetY.animateTo(0f, animationSpec = tween(450))
     }
 
     Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
-        // App background 10%
         Image(
             painter = painterResource(id = R.drawable.img_cloud_background),
             contentDescription = null,
@@ -100,7 +94,7 @@ fun TransaksiTerkiniScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Header with back navigation matches Page 2
+            // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -117,66 +111,140 @@ fun TransaksiTerkiniScreen(
                     modifier = Modifier.weight(1f),
                     textAlign = TextAlign.Center
                 )
-                // Balance space
                 Spacer(modifier = Modifier.width(48.dp))
             }
 
-            // Date picker fake input row matches Page 2
-            OutlinedTextField(
-                value = searchDateQuery,
-                onValueChange = { searchDateQuery = it },
-                readOnly = true,
-                placeholder = { Text("Cari berdasarkan tanggal...", color = Color.Gray, fontFamily = WorkSansFont) },
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.DateRange,
-                        contentDescription = "Date",
-                        modifier = Modifier.clickable { showDatePickerDialog = true }
-                    )
-                },
-                trailingIcon = {
-                    if (searchDateQuery.isNotEmpty()) {
-                        IconButton(onClick = { searchDateQuery = "" }) {
-                            Icon(Icons.Filled.Clear, contentDescription = "Clear", tint = Color.Gray)
-                        }
-                    }
-                },
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFFCEE5D0),
-                    unfocusedBorderColor = Color(0xFFE0E0E0),
-                    focusedContainerColor = Color(0xFFF9F9F9),
-                    unfocusedContainerColor = Color(0xFFF9F9F9),
-                ),
+            // Time Filter Pills Row
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { showDatePickerDialog = true }
-                    .testTag("date_picker_filter_input")
-            )
-
-            // List of detailed transaction cards
-            val filteredList = remember(transactions, products, searchDateQuery) {
-                val baseFiltered = when {
-                    searchDateQuery.isNotEmpty() -> transactions.filter { it.tanggal == searchDateQuery }
-                    else -> transactions
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val filterLabels = listOf("Mingguan", "Bulanan", "Tahunan", "Semua Transaksi")
+                filterLabels.forEachIndexed { idx, label ->
+                    val isActive = selectedFilterPill == idx
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (isActive) Color(0xFF0F4E2D) else Color(0xFFF0F0F0))
+                            .clickable { selectedFilterPill = idx }
+                            .padding(horizontal = 14.dp, vertical = 8.dp)
+                            .testTag("filter_pill_trans_$idx")
+                    ) {
+                        Text(
+                            text = label,
+                            fontFamily = WorkSansFont,
+                            color = if (isActive) Color.White else Color.Gray,
+                            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
-                
+            }
+
+            // Filter and Group transactions by time range
+            val refDate = remember(transactions) { getReferenceDate(transactions) }
+            val groupedTransactions = remember(transactions, products, selectedFilterPill, refDate) {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                val baseCal = Calendar.getInstance().apply { time = refDate }
+
+                val filtered = when (selectedFilterPill) {
+                    0 -> { // Mingguan (7 hari ke belakang dari sekarang/refDate)
+                        val cutoff = Calendar.getInstance().apply {
+                            time = baseCal.time
+                            add(Calendar.DAY_OF_YEAR, -7)
+                        }
+                        transactions.filter { tx ->
+                            val d = try { sdf.parse(tx.tanggal) } catch (e: Exception) { null }
+                            d != null && !d.before(cutoff.time) && !d.after(baseCal.time)
+                        }
+                    }
+                    1 -> { // Bulanan (30 hari ke belakang)
+                        val cutoff = Calendar.getInstance().apply {
+                            time = baseCal.time
+                            add(Calendar.DAY_OF_YEAR, -30)
+                        }
+                        transactions.filter { tx ->
+                            val d = try { sdf.parse(tx.tanggal) } catch (e: Exception) { null }
+                            d != null && !d.before(cutoff.time) && !d.after(baseCal.time)
+                        }
+                    }
+                    2 -> { // Tahunan (1 tahun ke belakang)
+                        val cutoff = Calendar.getInstance().apply {
+                            time = baseCal.time
+                            add(Calendar.YEAR, -1)
+                        }
+                        transactions.filter { tx ->
+                            val d = try { sdf.parse(tx.tanggal) } catch (e: Exception) { null }
+                            d != null && !d.before(cutoff.time) && !d.after(baseCal.time)
+                        }
+                    }
+                    else -> transactions // Semua Transaksi
+                }
+
                 val currentProductIds = products.map { it.id }.toSet()
-                baseFiltered.filter { it.product_id in currentProductIds }.sortedByDescending { it.tanggal }
+                val validList = filtered.filter { it.product_id in currentProductIds }.sortedByDescending { it.tanggal }
+
+                // Format kelompok header
+                val dayFormat = SimpleDateFormat("EEEE, dd MMM yyyy", Locale("id", "ID"))
+                val weekDateFmt = SimpleDateFormat("dd MMM", Locale("id", "ID"))
+
+                validList.groupBy { tx ->
+                    try {
+                        val date = sdf.parse(tx.tanggal)
+                        if (date != null && selectedFilterPill == 1) {
+                            // Khusus filter Bulanan: Kelompokkan berdasarkan minggu ke belakang dari refDate
+                            val txCal = Calendar.getInstance().apply { time = date }
+                            val refCal = Calendar.getInstance().apply { time = refDate }
+
+                            // Hitung selisih hari dari refDate
+                            val diffMillis = refCal.timeInMillis - txCal.timeInMillis
+                            val diffDays = (diffMillis / (1000 * 60 * 60 * 24)).toInt()
+
+                            val weekIndex = (diffDays / 7).coerceIn(0, 3) // Minggu 0 (terbaru) sampai Minggu 3
+
+                            // Tentukan rentang tanggal untuk label minggu tersebut
+                            val weekEndCal = Calendar.getInstance().apply {
+                                time = refDate
+                                add(Calendar.DAY_OF_YEAR, -(weekIndex * 7))
+                            }
+                            val weekStartCal = Calendar.getInstance().apply {
+                                time = weekEndCal.time
+                                add(Calendar.DAY_OF_YEAR, -6)
+                            }
+
+                            val startStr = weekDateFmt.format(weekStartCal.time)
+                            val endStr = weekDateFmt.format(weekEndCal.time)
+
+                            "$startStr - $endStr"
+                        } else if (date != null && selectedFilterPill >= 2) {
+                            // Tahunan / Semua: Dikelompokkan per Bulan
+                            SimpleDateFormat("MMMM yyyy", Locale("id", "ID")).format(date)
+                        } else if (date != null) {
+                            // Mingguan: Dikelompokkan per Hari
+                            dayFormat.format(date)
+                        } else {
+                            tx.tanggal
+                        }
+                    } catch (e: Exception) {
+                        tx.tanggal
+                    }
+                }
             }
 
             LazyColumn(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (filteredList.isEmpty()) {
+                if (groupedTransactions.isEmpty()) {
                     item {
                         Box(
                             modifier = Modifier.fillMaxWidth().padding(48.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Tidak ada transaksi untuk tanggal ini.",
+                                "Tidak ada transaksi untuk filter ini.",
                                 fontFamily = WorkSansFont,
                                 color = Color.Gray,
                                 fontSize = 13.sp
@@ -184,72 +252,47 @@ fun TransaksiTerkiniScreen(
                         }
                     }
                 } else {
-                    items(filteredList) { item ->
-                        val prod = products.find { it.id == item.product_id }
-                        DetailedTransactionCard(
-                            transaction = item,
-                            productName = prod?.nama_produk ?: "ID ${item.product_id}",
-                            productImage = prod?.gambar,
-                            onEdit = { 
-                                editingTransaction = item
-                                showEditDatePickerDialog = true
-                            },
-                            onDelete = { viewModel.deleteTransaction(item.id_transaksi) }
-                        )
-                    }
-                }
-            }
-        }
+                    groupedTransactions.forEach { (groupTitle, txList) ->
+                        item(key = "header_$groupTitle") {
+                            Text(
+                                text = groupTitle,
+                                fontFamily = WorkSansFont,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = Color(0xFF0F4E2D),
+                                modifier = Modifier.padding(top = 8.dp, bottom = 2.dp)
+                            )
+                        }
 
-        // Beautiful real interactive calendar dialog automatically adapting to system locale and phone date
-        if (showDatePickerDialog) {
-            DatePickerDialog(
-                onDismissRequest = { showDatePickerDialog = false },
-                confirmButton = {
-                    TextButton(onClick = {
-                        val selectedTimestamp = datePickerState.selectedDateMillis
-                        if (selectedTimestamp != null) {
-                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                            searchDateQuery = sdf.format(Date(selectedTimestamp))
+                        // Kelompokkan item di dalam tanggal/bulan tersebut berdasarkan product_id untuk menghitung total quantity
+                        val aggregatedItems = txList.groupBy { it.product_id }.values.map { group ->
+                            val representative = group.maxByOrNull { it.tanggal } ?: group.first()
+                            Pair(representative, group.size)
                         }
-                        showDatePickerDialog = false
-                    }) {
-                        Text("Pilih", color = Color(0xFF0F4E2D), fontWeight = FontWeight.Bold)
-                    }
-                },
-                dismissButton = {
-                    Row {
-                        TextButton(onClick = {
-                            searchDateQuery = ""
-                            showDatePickerDialog = false
-                        }) {
-                            Text("Reset", color = Color.Red)
-                        }
-                        TextButton(onClick = {
-                            showDatePickerDialog = false
-                        }) {
-                            Text("Batal", color = Color.Gray)
+
+                        items(aggregatedItems, key = { it.first.id_transaksi }) { (item, totalQty) ->
+                            val prod = products.find { it.id == item.product_id }
+                            DetailedTransactionCard(
+                                transaction = item,
+                                productName = prod?.nama_produk ?: "ID ${item.product_id}",
+                                productImage = prod?.gambar,
+                                totalQuantity = totalQty, // Lewatkan total kuantitas terhitung
+                                onEdit = {
+                                    editingTransaction = item
+                                    showEditDatePickerDialog = true
+                                },
+                                onDelete = { viewModel.deleteTransaction(item.id_transaksi) }
+                            )
                         }
                     }
                 }
-            ) {
-                DatePicker(
-                    state = datePickerState,
-                    showModeToggle = false,
-                    colors = DatePickerDefaults.colors(
-                        selectedDayContainerColor = Color(0xFF0F4E2D),
-                        selectedDayContentColor = Color.White,
-                        todayContentColor = Color(0xFF0F4E2D),
-                        todayDateBorderColor = Color(0xFF0F4E2D)
-                    )
-                )
             }
         }
 
         if (showEditDatePickerDialog) {
             DatePickerDialog(
-                onDismissRequest = { 
-                    showEditDatePickerDialog = false 
+                onDismissRequest = {
+                    showEditDatePickerDialog = false
                     editingTransaction = null
                 },
                 confirmButton = {
@@ -292,7 +335,6 @@ fun TransaksiTerkiniScreen(
             }
         }
 
-        // Global Error Alert pop-up system
         Box(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -304,7 +346,14 @@ fun TransaksiTerkiniScreen(
 }
 
 @Composable
-fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, productImage: String? = null, onEdit: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
+fun DetailedTransactionCard(
+    transaction: SalesTransaction,
+    productName: String,
+    productImage: String? = null,
+    totalQuantity: Int = 1, // Menerima total kuantitas terhitung
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
+) {
     var expanded by remember { mutableStateOf(false) }
     var showDeleteTransactionDialog by remember { mutableStateOf(false) }
     val rotationState by animateFloatAsState(
@@ -315,14 +364,31 @@ fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, 
     if (showDeleteTransactionDialog) {
         AlertDialog(
             onDismissRequest = { showDeleteTransactionDialog = false },
-            title = { Text("Hapus Transaksi?", fontFamily = WorkSansFont, fontWeight = FontWeight.Bold, color = Color.Red) },
-            text = { Text("Apakah Anda yakin ingin menghapus transaksi penjualan ini?", fontFamily = WorkSansFont) },
+            title = {
+                Text(
+                    "Hapus Transaksi?",
+                    fontFamily = WorkSansFont,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.Red
+                )
+            },
+            text = {
+                Text(
+                    "Apakah Anda yakin ingin menghapus transaksi penjualan ini?",
+                    fontFamily = WorkSansFont
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     showDeleteTransactionDialog = false
                     onDelete?.invoke()
                 }) {
-                    Text("Hapus", color = Color.Red, fontFamily = WorkSansFont, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Hapus",
+                        color = Color.Red,
+                        fontFamily = WorkSansFont,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             },
             dismissButton = {
@@ -349,7 +415,6 @@ fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, 
                     .padding(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Product photo or placeholder thumbnail box
                 Box(
                     modifier = Modifier
                         .size(54.dp)
@@ -388,12 +453,11 @@ fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, 
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
-                        
                     }
 
-                    // Quantity sold text green
+                    // Menampilkan total kuantitas yang terjual secara dinamis
                     Text(
-                        text = "1 pcs",
+                        text = "$totalQuantity Pcs",
                         fontFamily = WorkSansFont,
                         color = Color(0xFF0F4E2D),
                         fontWeight = FontWeight.Bold,
@@ -404,7 +468,6 @@ fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, 
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Chevron icon rotation dynamically animated
                 Icon(
                     imageVector = Icons.Filled.ChevronRight,
                     contentDescription = if (expanded) "Collapse" else "Expand",
@@ -426,43 +489,91 @@ fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, 
                         .padding(horizontal = 14.dp)
                         .padding(bottom = 14.dp)
                 ) {
-                    Divider(color = Color(0xFFECECEC), thickness = 1.dp, modifier = Modifier.padding(vertical = 4.dp))
-                    
+                    Divider(
+                        color = Color(0xFFECECEC),
+                        thickness = 1.dp,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Tanggal:", fontFamily = WorkSansFont, color = Color.Gray, fontSize = 12.sp)
-                        Text(transaction.tanggal, fontFamily = WorkSansFont, color = Color(0xFF333333), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Text(
+                            "Tanggal:",
+                            fontFamily = WorkSansFont,
+                            color = Color.Gray,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            transaction.tanggal,
+                            fontFamily = WorkSansFont,
+                            color = Color(0xFF333333),
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
+                        )
                     }
-                    
+
                     if (onEdit != null || onDelete != null) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
                             if (onEdit != null) {
                                 Button(
                                     onClick = { onEdit.invoke() },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF0F4E8)),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(
+                                            0xFFF0F4E8
+                                        )
+                                    ),
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.weight(1f).height(40.dp),
                                     elevation = ButtonDefaults.buttonElevation(0.dp)
                                 ) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = Color(0xFF0F4E2D), modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        Icons.Filled.Edit,
+                                        contentDescription = "Edit",
+                                        tint = Color(0xFF0F4E2D),
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Edit Tanggal", color = Color(0xFF0F4E2D), fontFamily = WorkSansFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text(
+                                        "Edit Tanggal",
+                                        color = Color(0xFF0F4E2D),
+                                        fontFamily = WorkSansFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                             if (onDelete != null) {
                                 Button(
                                     onClick = { showDeleteTransactionDialog = true },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFF0F0)),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color(
+                                            0xFFFFF0F0
+                                        )
+                                    ),
                                     shape = RoundedCornerShape(8.dp),
                                     modifier = Modifier.weight(1f).height(40.dp),
                                     elevation = ButtonDefaults.buttonElevation(0.dp)
                                 ) {
-                                    Icon(Icons.Filled.Delete, contentDescription = "Hapus", tint = Color.Red, modifier = Modifier.size(16.dp))
+                                    Icon(
+                                        Icons.Filled.Delete,
+                                        contentDescription = "Hapus",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(16.dp)
+                                    )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Text("Hapus", color = Color.Red, fontFamily = WorkSansFont, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    Text(
+                                        "Hapus",
+                                        color = Color.Red,
+                                        fontFamily = WorkSansFont,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
                                 }
                             }
                         }
@@ -472,7 +583,6 @@ fun DetailedTransactionCard(transaction: SalesTransaction, productName: String, 
         }
     }
 }
-
 
 // ---------------------- PRODUCT DETAILS / EDIT SCREEN ----------------------
 @Composable

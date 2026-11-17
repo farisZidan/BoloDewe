@@ -1,6 +1,7 @@
 *.iml
 .gradle
 .kotlin
+.idea
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -16,3 +17,12 @@
 local.properties
 .env
 debug.keystore
+
+
+Frontend/.idea/
+Frontend/.idea/misc.xml
+Frontend/.idea/planningMode.xml
+Frontend/build/reports/configuration-cache/
+Frontend/.idea/deploymentTargetSelector.xml
+Frontend/.idea/misc.xml
+Frontend/.idea/planningMode.xml

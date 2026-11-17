@@ -213,37 +213,6 @@ fun MainAppContainer(
     }
 }
 
-// --- Helper functions for dynamic Report Calculations ---
-fun getFilteredTransactions(transactions: List<SalesTransaction>, isMonthly: Boolean): List<SalesTransaction> {
-    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val latestTxDate = transactions.mapNotNull {
-        try { sdf.parse(it.tanggal) } catch (e: Exception) { null }
-    }.maxByOrNull { it.time }
-
-    val baseCal = Calendar.getInstance()
-    if (latestTxDate != null) {
-        baseCal.time = latestTxDate
-    }
-
-    val cutoffCal = Calendar.getInstance().apply {
-        time = baseCal.time
-        if (isMonthly) {
-            add(Calendar.DAY_OF_YEAR, -30)
-        } else {
-            add(Calendar.DAY_OF_YEAR, -7)
-        }
-    }
-
-    return transactions.filter { tx ->
-        try {
-            val d = sdf.parse(tx.tanggal)
-            d != null && !d.before(cutoffCal.time) && !d.after(baseCal.time)
-        } catch (e: Exception) {
-            true // fallback
-        }
-    }
-}
-
 // ---------------------- LAPORAN TAB VIEW ----------------------
 @Composable
 fun LaporanView(viewModel: BoloDeweViewModel) {
@@ -257,37 +226,6 @@ fun LaporanView(viewModel: BoloDeweViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val filteredTx = getFilteredTransactions(transactions, isMonthlySelected)
 
-    val csvLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    val csvData = generateCsvReportString(filteredTx)
-                    outputStream.write(csvData.toByteArray(Charsets.UTF_8))
-                }
-                android.widget.Toast.makeText(context, "Laporan CSV berhasil diunduh!", android.widget.Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(context, "Gagal mengunduh CSV: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    val pdfLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/pdf")
-    ) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.openOutputStream(uri)?.use { outputStream ->
-                    val pdfBytes = generatePdfReportBytes(filteredTx)
-                    outputStream.write(pdfBytes)
-                }
-                android.widget.Toast.makeText(context, "Laporan PDF berhasil diunduh!", android.widget.Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(context, "Gagal mengunduh PDF: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     // Filter and group to compute top selling items
     val groupedSales = filteredTx
@@ -323,259 +261,123 @@ fun LaporanView(viewModel: BoloDeweViewModel) {
             )
         }
 
-        // Timeframe selector control (1 Minggu vs 1 Bulan)
-        item {
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F9F9)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFEDEDED), RoundedCornerShape(14.dp))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    listOf("1 Minggu", "1 Bulan").forEachIndexed { index, label ->
-                        val isSelected = (index == 1) == isMonthlySelected
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (isSelected) Color(0xFF0F4E2D) else Color.Transparent)
-                                .clickable { isMonthlySelected = (index == 1) }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = if (isSelected) Color.White else Color.Gray,
-                                fontFamily = WorkSansFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
 
-        // Button trigger section for report downloads in accordance with selected filter
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF9F9F9)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .border(1.dp, Color(0xFFEDEDED), RoundedCornerShape(16.dp))
-                    .testTag("ekspor_laporan_card")
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "Ekspor Laporan Transaksi",
-                        fontFamily = WorkSansFont,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                    Text(
-                        text = "Unduh seluruh rekap transaksi aktif sesuai dengan rentang filter terpilih.",
-                        fontFamily = WorkSansFont,
-                        color = Color.Gray,
-                        fontSize = 11.sp,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(bottom = 12.dp)
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // Unduh CSV Button
-                        Button(
-                            onClick = {
-                                val filename = if (isMonthlySelected) "Laporan_BoloDewe_1_Bulan.csv" else "Laporan_BoloDewe_1_Minggu.csv"
-                                csvLauncher.launch(filename)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)), // Forest Green
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .testTag("unduh_csv_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Description,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Unduh CSV",
-                                fontFamily = WorkSansFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = Color.White
-                            )
-                        }
-
-                        // Unduh PDF Button
-                        Button(
-                            onClick = {
-                                val filename = if (isMonthlySelected) "Laporan_BoloDewe_1_Bulan.pdf" else "Laporan_BoloDewe_1_Minggu.pdf"
-                                pdfLauncher.launch(filename)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)), // PDF Red
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(44.dp)
-                                .testTag("unduh_pdf_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Description,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Unduh PDF",
-                                fontFamily = WorkSansFont,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 12.sp,
-                                color = Color.White
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Detailed graphic horizontal progress bar comparing dynamic sales of the Top 5 products
-        item {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7F7)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(20.dp))
-                    .border(1.dp, Color(0xFFEDEDED), RoundedCornerShape(20.dp))
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    Text(
-                        text = "Top 5 Trend Produk Paling Laku",
-                        fontFamily = WorkSansFont,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Black,
-                        fontSize = 15.sp
-                    )
-                    Text(
-                        text = if (isMonthlySelected) "Periode Hari Ini s/d 30 Hari Lalu" else "Periode Hari Ini s/d 7 Hari Lalu",
-                        fontFamily = WorkSansFont,
-                        color = Color.Gray,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-
-                    if (top5.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(100.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "Belum ada penjualan di periode ini",
-                                fontFamily = WorkSansFont,
-                                color = Color.Gray,
-                                fontSize = 12.sp
-                            )
-                        }
-                    } else {
-                        val maxQtyVal = top5.maxOfOrNull { it.second } ?: 1
-                        top5.forEachIndexed { idx, item ->
-                            val currentRatio = item.second.toFloat() / maxQtyVal.toFloat()
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                // Dynamic Rank container
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(CircleShape)
-                                        .background(if (idx == 0) Color(0xFF0F4E2D) else Color(0xFFEFEFEF)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "${idx + 1}",
-                                        fontFamily = LexendZettaFont,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 10.sp,
-                                        color = if (idx == 0) Color.White else Color.Black
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.width(12.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = item.first,
-                                            fontFamily = WorkSansFont,
-                                            fontWeight = FontWeight.Medium,
-                                            fontSize = 13.sp,
-                                            color = Color.Black,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                        Text(
-                                            text = "${item.second} Pcs",
-                                            fontFamily = WorkSansFont,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = Color(0xFF0F4E2D)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(8.dp)
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(Color(0xFFEBEBEB))
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth(currentRatio)
-                                                .fillMaxHeight()
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(if (idx == 0) Color(0xFF0F4E2D) else Color(0xFF5DAF77))
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+//        // Detailed graphic horizontal progress bar comparing dynamic sales of the Top 5 products
+//        item {
+//            Card(
+//                shape = RoundedCornerShape(20.dp),
+//                colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F7F7)),
+//                modifier = Modifier
+//                    .fillMaxWidth()
+//                    .shadow(1.dp, RoundedCornerShape(20.dp))
+//                    .border(1.dp, Color(0xFFEDEDED), RoundedCornerShape(20.dp))
+//            ) {
+//                Column(modifier = Modifier.padding(18.dp)) {
+//                    Text(
+//                        text = "Top 5 Trend Produk Paling Laku",
+//                        fontFamily = WorkSansFont,
+//                        fontWeight = FontWeight.Bold,
+//                        color = Color.Black,
+//                        fontSize = 15.sp
+//                    )
+//                    Text(
+//                        text = if (isMonthlySelected) "Periode Hari Ini s/d 30 Hari Lalu" else "Periode Hari Ini s/d 7 Hari Lalu",
+//                        fontFamily = WorkSansFont,
+//                        color = Color.Gray,
+//                        fontSize = 11.sp,
+//                        modifier = Modifier.padding(bottom = 16.dp)
+//                    )
+//
+//                    if (top5.isEmpty()) {
+//                        Box(
+//                            modifier = Modifier
+//                                .fillMaxWidth()
+//                                .height(100.dp),
+//                            contentAlignment = Alignment.Center
+//                        ) {
+//                            Text(
+//                                text = "Belum ada penjualan di periode ini",
+//                                fontFamily = WorkSansFont,
+//                                color = Color.Gray,
+//                                fontSize = 12.sp
+//                            )
+//                        }
+//                    } else {
+//                        val maxQtyVal = top5.maxOfOrNull { it.second } ?: 1
+//                        top5.forEachIndexed { idx, item ->
+//                            val currentRatio = item.second.toFloat() / maxQtyVal.toFloat()
+//                            Row(
+//                                modifier = Modifier
+//                                    .fillMaxWidth()
+//                                    .padding(vertical = 8.dp),
+//                                verticalAlignment = Alignment.CenterVertically
+//                            ) {
+//                                // Dynamic Rank container
+//                                Box(
+//                                    modifier = Modifier
+//                                        .size(24.dp)
+//                                        .clip(CircleShape)
+//                                        .background(if (idx == 0) Color(0xFF0F4E2D) else Color(0xFFEFEFEF)),
+//                                    contentAlignment = Alignment.Center
+//                                ) {
+//                                    Text(
+//                                        text = "${idx + 1}",
+//                                        fontFamily = LexendZettaFont,
+//                                        fontWeight = FontWeight.Bold,
+//                                        fontSize = 10.sp,
+//                                        color = if (idx == 0) Color.White else Color.Black
+//                                    )
+//                                }
+//
+//                                Spacer(modifier = Modifier.width(12.dp))
+//
+//                                Column(modifier = Modifier.weight(1f)) {
+//                                    Row(
+//                                        modifier = Modifier.fillMaxWidth(),
+//                                        horizontalArrangement = Arrangement.SpaceBetween,
+//                                        verticalAlignment = Alignment.CenterVertically
+//                                    ) {
+//                                        Text(
+//                                            text = item.first,
+//                                            fontFamily = WorkSansFont,
+//                                            fontWeight = FontWeight.Medium,
+//                                            fontSize = 13.sp,
+//                                            color = Color.Black,
+//                                            maxLines = 1,
+//                                            overflow = TextOverflow.Ellipsis,
+//                                            modifier = Modifier.weight(1f, fill = false)
+//                                        )
+//                                        Text(
+//                                            text = "${item.second} Pcs",
+//                                            fontFamily = WorkSansFont,
+//                                            fontWeight = FontWeight.Bold,
+//                                            fontSize = 13.sp,
+//                                            color = Color(0xFF0F4E2D)
+//                                        )
+//                                    }
+//                                    Spacer(modifier = Modifier.height(6.dp))
+//                                    Box(
+//                                        modifier = Modifier
+//                                            .fillMaxWidth()
+//                                            .height(8.dp)
+//                                            .clip(RoundedCornerShape(4.dp))
+//                                            .background(Color(0xFFEBEBEB))
+//                                    ) {
+//                                        Box(
+//                                            modifier = Modifier
+//                                                .fillMaxWidth(currentRatio)
+//                                                .fillMaxHeight()
+//                                                .clip(RoundedCornerShape(4.dp))
+//                                                .background(if (idx == 0) Color(0xFF0F4E2D) else Color(0xFF5DAF77))
+//                                        )
+//                                    }
+//                                }
+//                            }
+//                        }
+//                    }
+//                }
+//            }
+//        }
 
         // Line Chart component to visualize product sales trends
         item {
@@ -673,7 +475,7 @@ fun LaporanView(viewModel: BoloDeweViewModel) {
                                             overflow = TextOverflow.Ellipsis
                                         )
                                         Text(
-                                            text = "SKU: ${item.kode_sku ?: ""}",
+                                            text = "SKU: ${item.sku ?: item.kode_sku ?: ""}",
                                             fontFamily = WorkSansFont,
                                             color = Color.Gray,
                                             fontSize = 11.sp
@@ -686,7 +488,7 @@ fun LaporanView(viewModel: BoloDeweViewModel) {
                                         val statusString = item.status ?: ""
                                         if (statusString.contains("Sukses", ignoreCase = true) || statusString.contains("Online", ignoreCase = true)) {
                                             Text(
-                                                text = "Saran: +${item.ramalan_final ?: 0} Pcs",
+                                                text = "Saran: +${item.prediksi_bulan_depan ?: item.ramalan_final ?: 0} Pcs",
                                                 fontFamily = WorkSansFont,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF0F4E2D),
@@ -1094,27 +896,53 @@ fun TransaksiView(
 
     var selectedRecFilter by remember { mutableStateOf(0) } // 0: Hari Ini, 1: Kemarin, 2: Kemarin Lusa, 3: Seminggu
 
-    // List of transactions filtered
-    val listToRender = remember(transactions, completeCatalog, selectedRecFilter) {
+    // Mengelompokkan transaksi yang sudah difilter berdasarkan product_id
+    val groupedTransactions = remember(transactions, completeCatalog, selectedRecFilter) {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val today = sdf.format(Date())
-        val cal = Calendar.getInstance()
-        
-        cal.add(Calendar.DATE, -1)
-        val yesterday = sdf.format(cal.time)
-        
-        cal.add(Calendar.DATE, -1)
-        val yesterdayLusa = sdf.format(cal.time)
+        val refDate = getReferenceDate(transactions)
+        val baseCal = Calendar.getInstance().apply { time = refDate }
+        val today = sdf.format(baseCal.time)
+
+        val calYesterday = Calendar.getInstance().apply {
+            time = baseCal.time
+            add(Calendar.DATE, -1)
+        }
+        val yesterday = sdf.format(calYesterday.time)
+
+        val calLusa = Calendar.getInstance().apply {
+            time = baseCal.time
+            add(Calendar.DATE, -2)
+        }
+        val yesterdayLusa = sdf.format(calLusa.time)
 
         val baseFiltered = when (selectedRecFilter) {
             0 -> transactions.filter { it.tanggal == today }
             1 -> transactions.filter { it.tanggal == yesterday }
             2 -> transactions.filter { it.tanggal == yesterdayLusa }
+            3 -> { // Seminggu: 7 hari ke belakang dari referensi sekarang
+                val cutoff = Calendar.getInstance().apply {
+                    time = baseCal.time
+                    add(Calendar.DAY_OF_YEAR, -7)
+                }
+                transactions.filter { tx ->
+                    val d = try { sdf.parse(tx.tanggal) } catch (e: Exception) { null }
+                    d != null && !d.before(cutoff.time) && !d.after(baseCal.time)
+                }
+            }
             else -> transactions
         }
-        
+
         val activeProductIds = completeCatalog.map { it.id }.toSet()
-        baseFiltered.filter { it.product_id in activeProductIds }
+        baseFiltered
+            .filter { it.product_id in activeProductIds }
+            .groupBy { it.product_id }
+            .values
+            .map { txGroup ->
+                val latestTx = txGroup.maxByOrNull { it.tanggal } ?: txGroup.first()
+                // Mengembalikan Pair berisi SalesTransaction representatif dan total jumlah item terjual
+                Pair(latestTx, txGroup.size)
+            }
+            .sortedByDescending { it.second }
     }
 
     LazyColumn(
@@ -1337,7 +1165,8 @@ fun TransaksiView(
                             if (finalProd != null) {
                                 viewModel.addSaleTransaction(
                                     productId = finalProd.id,
-                                    dateString = dateString
+                                    dateString = dateString,
+                                    quantity = quantityValue.toIntOrNull() ?: 1
                                 )
 
                                 // Clear forms
@@ -1425,7 +1254,7 @@ fun TransaksiView(
             }
         }
 
-        if (listToRender.isEmpty()) {
+        if (groupedTransactions.isEmpty()) {
             item {
                 Box(
                     modifier = Modifier
@@ -1443,12 +1272,14 @@ fun TransaksiView(
                 }
             }
         } else {
-            items(listToRender) { item ->
+            // Menggunakan items dengan Pair (Transaction & Total Qty)
+            items(groupedTransactions) { (item, totalQty) ->
                 val prod = completeCatalog.find { it.id == item.product_id }
                 TransactionRowCard(
                     transaction = item,
                     productName = prod?.nama_produk ?: "ID ${item.product_id}",
                     productImage = prod?.gambar,
+                    totalQuantity = totalQty, // Kirim total kuantitas
                     onDelete = { viewModel.deleteTransaction(item.id_transaksi) }
                 )
             }
@@ -1491,7 +1322,13 @@ fun TransaksiView(
 }
 
 @Composable
-fun TransactionRowCard(transaction: SalesTransaction, productName: String, productImage: String? = null, onDelete: (() -> Unit)? = null) {
+fun TransactionRowCard(
+    transaction: SalesTransaction,
+    productName: String,
+    productImage: String? = null,
+    totalQuantity: Int = 1, // Parameter penampung total kuantitas
+    onDelete: (() -> Unit)? = null
+) {
     var showDeleteTransactionDialog by remember { mutableStateOf(false) }
 
     if (showDeleteTransactionDialog) {
@@ -1529,7 +1366,6 @@ fun TransactionRowCard(transaction: SalesTransaction, productName: String, produ
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Product photo or placeholder circle
             Box(
                 modifier = Modifier
                     .size(44.dp)
@@ -1566,8 +1402,7 @@ fun TransactionRowCard(transaction: SalesTransaction, productName: String, produ
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                
-                // Modification tag metadata e.g. "5m ago • Harga diubah (Lama: Rp 85rb)"
+
                 Text(
                     text = transaction.tanggal,
                     fontFamily = WorkSansFont,
@@ -1578,9 +1413,9 @@ fun TransactionRowCard(transaction: SalesTransaction, productName: String, produ
                 )
             }
 
-            // Quantity sold highlight in green
+            // Menampilkan jumlah total kuantitas produk yang terjual secara dinamis
             Text(
-                text = "1 Pcs",
+                text = "$totalQuantity Pcs",
                 fontFamily = WorkSansFont,
                 color = Color(0xFF0F4E2D),
                 fontWeight = FontWeight.Bold,
@@ -1691,7 +1526,7 @@ fun ProdukView(
                 } else {
                     items(filteredProducts) { item ->
                         // Calculate sold stock based on current timeframes filter
-                        val soldQty = getSoldQuantityForProduct(item.id, transactions, "Seminggu")
+                        val soldQty = getSoldQuantityForProduct(item.id, transactions, timeframe = "")
                         ProductItemRowCard(item, soldQty, onClick = { onNavigateToDetail(item.id) })
                     }
                 }
@@ -1714,6 +1549,37 @@ fun ProdukView(
     }
 }
 
+// --- Helper functions for dynamic Report Calculations ---
+fun getReferenceDate(transactions: List<SalesTransaction>): Date {
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    return transactions.mapNotNull {
+        try { sdf.parse(it.tanggal) } catch (e: Exception) { null }
+    }.maxByOrNull { it.time } ?: Date()
+}
+
+fun getFilteredTransactions(transactions: List<SalesTransaction>, isMonthly: Boolean): List<SalesTransaction> {
+    val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+    val latestTxDate = getReferenceDate(transactions)
+
+    val cutoffCal = Calendar.getInstance().apply {
+        time = latestTxDate
+        if (isMonthly) {
+            add(Calendar.DAY_OF_YEAR, -30)
+        } else {
+            add(Calendar.DAY_OF_YEAR, -7)
+        }
+    }
+
+    return transactions.filter { tx ->
+        try {
+            val d = sdf.parse(tx.tanggal)
+            d != null && !d.before(cutoffCal.time) && !d.after(latestTxDate)
+        } catch (e: Exception) {
+            true // fallback
+        }
+    }
+}
+
 // Helper function to calculate sold quantity for a product under timeframe filters
 private fun getSoldQuantityForProduct(
     productId: Int,
@@ -1721,23 +1587,34 @@ private fun getSoldQuantityForProduct(
     timeframe: String
 ): Int {
     val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
-    
-    val todayCal = java.util.Calendar.getInstance()
-    val todayStr = sdf.format(todayCal.time)
-    
-    val yesterdayCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DATE, -1) }
-    val yesterdayStr = sdf.format(yesterdayCal.time)
-    
-    val kemarinLusaCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DATE, -2) }
-    val kemarinLusaStr = sdf.format(kemarinLusaCal.time)
-    
-    val weekAgoCal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DATE, -6) }
-    weekAgoCal.set(java.util.Calendar.HOUR_OF_DAY, 0)
-    weekAgoCal.set(java.util.Calendar.MINUTE, 0)
-    weekAgoCal.set(java.util.Calendar.SECOND, 0)
-    weekAgoCal.set(java.util.Calendar.MILLISECOND, 0)
+    val refDate = getReferenceDate(transactions)
 
-    val todayMidnight = java.util.Calendar.getInstance().apply {
+    val baseCal = java.util.Calendar.getInstance().apply { time = refDate }
+    val todayStr = sdf.format(baseCal.time)
+
+    val yesterdayCal = java.util.Calendar.getInstance().apply {
+        time = refDate
+        add(java.util.Calendar.DATE, -1)
+    }
+    val yesterdayStr = sdf.format(yesterdayCal.time)
+
+    val kemarinLusaCal = java.util.Calendar.getInstance().apply {
+        time = refDate
+        add(java.util.Calendar.DATE, -2)
+    }
+    val kemarinLusaStr = sdf.format(kemarinLusaCal.time)
+
+    val weekAgoCal = java.util.Calendar.getInstance().apply {
+        time = refDate
+        add(java.util.Calendar.DATE, -6)
+        set(java.util.Calendar.HOUR_OF_DAY, 0)
+        set(java.util.Calendar.MINUTE, 0)
+        set(java.util.Calendar.SECOND, 0)
+        set(java.util.Calendar.MILLISECOND, 0)
+    }
+
+    val refMidnight = java.util.Calendar.getInstance().apply {
+        time = refDate
         set(java.util.Calendar.HOUR_OF_DAY, 23)
         set(java.util.Calendar.MINUTE, 59)
         set(java.util.Calendar.SECOND, 59)
@@ -1751,7 +1628,7 @@ private fun getSoldQuantityForProduct(
             "Seminggu" -> {
                 try {
                     val txDate = sdf.parse(tx.tanggal)
-                    txDate != null && !txDate.before(weekAgoCal.time) && !txDate.after(todayMidnight.time)
+                    txDate != null && !txDate.before(weekAgoCal.time) && !txDate.after(refMidnight.time)
                 } catch (e: Exception) {
                     false
                 }

@@ -44,10 +44,13 @@ fun resolveProductImageUrl(gambar: String?): String? {
 
 @JsonClass(generateAdapter = true)
 data class ForecastItem(
-    @Json(name = "kode_sku") val kode_sku: String? = "",
+    @Json(name = "sku") val sku: String? = "",
     @Json(name = "nama_produk") val nama_produk: String? = "",
-    @Json(name = "ramalan_final") val ramalan_final: Int? = 0,
+    @Json(name = "prediksi_bulan_depan") val prediksi_bulan_depan: Int? = 0,
     val status: String? = ""
-)
+) {
+    val kode_sku: String? get() = sku
+    val ramalan_final: Int? get() = prediksi_bulan_depan
+}
 
 

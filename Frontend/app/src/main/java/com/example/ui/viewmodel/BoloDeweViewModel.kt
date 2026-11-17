@@ -161,14 +161,12 @@ class BoloDeweViewModel(private val repository: BoloDeweRepository) : ViewModel(
                     val dbProducts = allProducts.value
                     val dbTransactions = allTransactions.value
                     val computed = dbProducts.map { prod ->
-                        val totalQty = dbTransactions.filter { it.product_id == prod.id }.count()
-                        val ramalan = if (totalQty > 0) (totalQty * 1.5).toInt().coerceAtMost(50) else 0
-                        val statusText = if (dbTransactions.isNotEmpty()) "Sukses" else "Data kurang dari 2 bulan"
+                        val count = dbTransactions.count { it.product_id == prod.id }
                         ForecastItem(
-                            kode_sku = prod.kode_sku,
+                            sku = prod.kode_sku,
                             nama_produk = prod.nama_produk,
-                            ramalan_final = ramalan,
-                            status = statusText
+                            prediksi_bulan_depan = count,
+                            status = "Sukses"
                         )
                     }
                     _forecastList.value = computed
@@ -290,7 +288,8 @@ class BoloDeweViewModel(private val repository: BoloDeweRepository) : ViewModel(
 
     fun addSaleTransaction(
         productId: Int,
-        dateString: String // format "yyyy-MM-dd" or will fallback
+        dateString: String, // format "yyyy-MM-dd" or will fallback
+        quantity: Int,
     ) {
         viewModelScope.launch {
             _isLoading.value = true
@@ -309,10 +308,13 @@ class BoloDeweViewModel(private val repository: BoloDeweRepository) : ViewModel(
             }
 
             val success = try {
-                repository.addSale(
-                    productId = productId,
-                    date = finalDate
-                )
+                for (i in 0 until quantity) {
+                    repository.addSale(
+                        productId = productId,
+                        date = finalDate
+                    )
+                }
+                true
             } catch (e: Exception) {
                 val msg = e.localizedMessage ?: "Gagal menyimpan transaksi."
                 _errorMessage.value = msg
